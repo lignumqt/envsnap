@@ -1,0 +1,30 @@
+# Binaries
+/envsnap
+/dist/
+*.exe
+
+# Go build artifacts
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# Snapshot data files (don't commit personal snapshots)
+*.json
+!testdata/**/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Env files
+.env
+.env.*
+!.env.example
