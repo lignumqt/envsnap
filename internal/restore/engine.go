@@ -91,6 +91,7 @@ func Apply(plan *Plan, dryRun bool) error {
 	var errs []string
 	for _, action := range plan.Actions {
 		switch action.Type {
+
 		case ActionKernelModule:
 			if dryRun {
 				fmt.Printf("  [kernel] %s\n", action.Description)

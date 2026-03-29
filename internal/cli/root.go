@@ -31,6 +31,7 @@ development environment and comparing or restoring it on another machine.`,
 		newInspectCmd(),
 		newDiffCmd(),
 		newRestoreCmd(),
+		newExportCmd(),
 	)
 
 	return cmd

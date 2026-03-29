@@ -160,23 +160,6 @@ func modSet(mods []types.KernelModule) map[string]bool {
 	return m
 }
 
-var sensitiveEnvKeys = map[string]bool{
-	"AWS_": true, "GITHUB_TOKEN": true, "SECRET": true, "PASSWORD": true,
-	"TOKEN": true, "KEY": true, "PASSWD": true,
-}
-
-func isSensitive(key string) bool {
-	for prefix := range sensitiveEnvKeys {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
-			return true
-		}
-		if key == prefix {
-			return true
-		}
-	}
-	return false
-}
-
 func diffEnv(res *DiffResult, a, b map[string]string) {
 	importantPrefixes := []string{"GO", "PATH", "HOME", "JAVA", "PYTHON", "NODE", "NVM", "CARGO", "RUST"}
 	isImportant := func(key string) bool {
@@ -188,7 +171,7 @@ func diffEnv(res *DiffResult, a, b map[string]string) {
 		return false
 	}
 	for key, valA := range a {
-		if !isImportant(key) || isSensitive(key) {
+		if !isImportant(key) || types.IsSensitive(key) {
 			continue
 		}
 		valB, ok := b[key]
@@ -199,7 +182,7 @@ func diffEnv(res *DiffResult, a, b map[string]string) {
 		}
 	}
 	for key := range b {
-		if !isImportant(key) || isSensitive(key) {
+		if !isImportant(key) || types.IsSensitive(key) {
 			continue
 		}
 		if _, ok := a[key]; !ok {

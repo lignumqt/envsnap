@@ -8,6 +8,7 @@ A CLI tool for capturing a structured snapshot of your Linux development environ
 - **inspect** — pretty-print the contents of a saved snapshot
 - **diff** — compare two snapshots with color-coded output (added / removed / changed)
 - **restore** — dry-run or apply installation of packages missing on the current machine
+- **export** — convert a snapshot into a ready-to-use reproduction artifact: bash script, Dockerfile, Ansible playbook, or shell env fragment
 
 ## Supported package managers
 
@@ -69,6 +70,18 @@ envsnap --version
 
 # Enable verbose debug output globally (any subcommand)
 envsnap --debug snapshot
+
+# Export snapshot as a bash setup script (stdout)
+envsnap export snapshot.json
+
+# Export as Dockerfile, write to file
+envsnap export snapshot.json -f dockerfile -o Dockerfile
+
+# Export as Ansible playbook
+envsnap export snapshot.json -f ansible -o playbook.yml
+
+# Inject captured env vars into the current shell session
+source <(envsnap export snapshot.json -f env)
 ```
 
 ## Command reference
@@ -110,6 +123,75 @@ Output is colour-coded: green = added, red = removed, cyan = changed, yellow = w
 
 If neither `--dry-run` nor `--yes` is provided, restore defaults to dry-run mode and prints a notice.
 Package installation is executed with `sudo`; make sure your user has the necessary privileges.
+
+### `export`
+
+Converts a snapshot into a text artifact for reproducing the environment on another machine or in a container. **Nothing is executed automatically** — the command writes text to stdout (or to a file with `-o`) and you use the artifact yourself.
+
+| Flag               | Short | Default    | Description                                                         |
+|--------------------|-------|------------|---------------------------------------------------------------------|
+| `--format`         | `-f`  | `script`   | Output format: `script`, `dockerfile`, `ansible`, `env`             |
+| `--output`         | `-o`  | *(stdout)* | Write output to a file instead of stdout                            |
+| `--skip-packages`  |       | false      | Omit the package-installation section                               |
+| `--skip-env`       |       | false      | Omit the environment-variables section                              |
+| `--skip-modules`   |       | false      | Omit the kernel-modules section                                     |
+| `--only-loaded`    |       | false      | Include only currently loaded kernel modules (skip installed-only)  |
+
+#### Format details
+
+**`script`** (default) — a `bash` script with `set -euo pipefail`:
+- `apt-get install` or `dnf install` for all captured packages
+- Downloads the exact Go version from `go.dev/dl` and extracts to `/usr/local/go`
+- `sudo modprobe <name>` for each kernel module + writes `/etc/modules-load.d/envsnap.conf` to persist them across reboots
+- `export KEY=VALUE` for important, non-sensitive environment variables
+
+```bash
+envsnap export snap.json -o setup.sh
+bash setup.sh
+```
+
+**`dockerfile`** — a `Dockerfile` text file (does **not** build an image):
+- `FROM ubuntu:VERSION` / `FROM fedora:VERSION` based on captured system info
+- `RUN apt-get install` / `RUN dnf install` layer
+- `RUN wget … && tar …` layer to install the exact Go version
+- `ENV KEY=VALUE` for important, non-sensitive variables
+- Kernel modules **cannot** run inside a container (they operate at the host kernel level), so they appear as a documented comment block with `modprobe` commands intended for the host machine
+
+```bash
+envsnap export snap.json -f dockerfile -o Dockerfile
+docker build -t my-env .
+docker run --rm -it my-env bash
+```
+
+**`ansible`** — an Ansible playbook YAML (`become: true`, targets `localhost` by default):
+- `ansible.builtin.apt` / `ansible.builtin.dnf` task with a loop over all packages
+- `ansible.builtin.get_url` + `ansible.builtin.unarchive` block for Go
+- `community.general.modprobe` task with `ignore_errors: true` — idempotent module loading (unlike raw `modprobe`), runs on the managed host (not inside a container)
+- `ansible.builtin.copy` task that writes `/etc/modules-load.d/envsnap.conf` to persist modules across reboots
+- `ansible.builtin.copy` task that writes env vars to `/etc/profile.d/envsnap-env.sh`
+- Requires: `ansible-galaxy collection install community.general`
+
+```bash
+envsnap export snap.json -f ansible -o playbook.yml
+# Run locally:
+ansible-playbook playbook.yml
+# Run against a remote host:
+ansible-playbook playbook.yml -e target=myserver
+```
+
+**`env`** — a shell env fragment, all non-sensitive variables (no important-prefix filter):
+
+```bash
+# Apply to the current shell session:
+source <(envsnap export snap.json -f env)
+
+# Or eval form:
+eval "$(envsnap export snap.json -f env)"
+```
+
+#### Sensitive variable filtering
+
+All export formats automatically filter out variables whose names contain: `AWS_`, `GITHUB_TOKEN`, `SECRET`, `PASSWORD`, `TOKEN`, `KEY`, `PASSWD`. These are never written to any output.
 
 ### Global flags
 
@@ -241,6 +323,110 @@ envsnap snapshot --include packages -o /tmp/ci-packages.json
 ```bash
 envsnap snapshot --include packages -o /tmp/pkgs.json
 envsnap inspect /tmp/pkgs.json
+```
+
+### Reproduce environment in a Docker container
+
+```bash
+# On the source machine
+envsnap snapshot -o ~/workstation.json
+
+# Generate a Dockerfile (skip packages for a leaner image — add only what you need)
+envsnap export ~/workstation.json -f dockerfile --skip-packages -o Dockerfile
+
+# Build and run
+docker build -t my-env .
+docker run --rm -it my-env bash
+```
+
+```bash
+# Pipe Dockerfile directly into docker build without writing it to disk
+envsnap export ~/workstation.json -f dockerfile --skip-packages | docker build -t my-env -
+
+# Cross-build for another architecture
+envsnap export ~/workstation.json -f dockerfile --skip-packages \
+  | docker buildx build --platform linux/arm64 -t my-env-arm64 -
+```
+
+> **Kernel modules and containers:** kernel modules cannot be loaded inside a container
+> — they control the host kernel. All modules appear as a comment block with `modprobe`
+> commands intended to be run on the host machine after the container is started.
+
+### Automate environment setup with Ansible
+
+```bash
+# Generate playbook (only loaded modules, skip large package list)
+envsnap export ~/workstation.json -f ansible --only-loaded --skip-packages -o playbook.yml
+ansible-galaxy collection install community.general
+```
+
+**Run against localhost (the current machine):**
+```bash
+ansible-playbook playbook.yml
+```
+
+**Preview what would change without applying anything:**
+```bash
+ansible-playbook playbook.yml --check
+```
+
+**Run against a single remote host:**
+```bash
+ansible-playbook playbook.yml -e target=storage-server -i inventory.ini
+```
+
+**Run against an inventory group:**
+```ini
+# inventory.ini
+[storage]
+storage01 ansible_user=root
+storage02 ansible_user=root
+```
+
+```bash
+ansible-playbook playbook.yml -e target=storage -i inventory.ini
+```
+
+**Limit to a subset of hosts with `--limit`:**
+```bash
+ansible-playbook playbook.yml -i inventory.ini -l storage01,storage02
+```
+
+**Ask for sudo password (no passwordless sudo):**
+```bash
+ansible-playbook playbook.yml -K -i inventory.ini
+```
+
+**Use a specific SSH key:**
+```bash
+ansible-playbook playbook.yml --private-key ~/.ssh/id_storage -i inventory.ini
+```
+
+### Export env vars into a CI/CD pipeline
+
+```bash
+# Inject environment variables from a stored baseline snapshot into a CI job
+source <(envsnap export baseline.json -f env --skip-packages --skip-modules)
+```
+
+Write to a `.env` file for Docker Compose or tools that read it:
+```bash
+envsnap export baseline.json -f env --skip-packages --skip-modules \
+  | grep -v '^#' > .env       # strip comment lines, keep KEY=VALUE pairs
+```
+
+Use in a Makefile target:
+```makefile
+env: baseline.json
+	envsnap export $< -f env --skip-packages --skip-modules -o .env
+```
+
+### One-line environment clone to current shell
+
+```bash
+# Grab a colleague's snapshot, inject their env vars immediately
+curl -s https://example.com/colleague-snap.json -o /tmp/snap.json
+source <(envsnap export /tmp/snap.json -f env)
 ```
 
 ## Development
