@@ -41,14 +41,18 @@ Available collectors: env, system, go, packages, kernel_modules`,
 
 			// Split collectors into two groups:
 			//   background — safe to run concurrently while pterm spinner is active
-			//   interactive — need exclusive terminal (kernel_modules TUI)
+			//   interactive — need exclusive terminal (TUI)
+			//
+			// Interactive collectors run sequentially after the spinner in the order
+			// they appear in defaultCollectors(): packages TUI first, then kernel_modules TUI.
 			allCols := defaultCollectors()
 			var bgCols []collectors.Collector
 			var tuiCols []collectors.Collector
 			for _, col := range allCols {
-				if col.Name() == collectors.KernelModsCollectorName {
+				switch col.Name() {
+				case collectors.PackagesCollectorName, collectors.KernelModsCollectorName:
 					tuiCols = append(tuiCols, col)
-				} else {
+				default:
 					bgCols = append(bgCols, col)
 				}
 			}
@@ -70,16 +74,15 @@ Available collectors: env, system, go, packages, kernel_modules`,
 			}
 
 			// --- Phase 2: interactive collectors (after spinner, TUI can own terminal) ---
-			if collectorActive(collectors.KernelModsCollectorName, opts) {
-				for _, col := range tuiCols {
-					sec, colErr := col.Collect(ctx)
-					if colErr != nil {
-						pterm.Warning.Printf("collector %q error: %v\n", col.Name(), colErr)
-						continue
-					}
-					if applyErr := snapshot.ApplySection(snap, sec); applyErr != nil {
-						pterm.Warning.Printf("apply %q: %v\n", col.Name(), applyErr)
-					}
+			filteredTUI := filterActive(tuiCols, opts)
+			for _, col := range filteredTUI {
+				sec, colErr := col.Collect(ctx)
+				if colErr != nil {
+					pterm.Warning.Printf("collector %q error: %v\n", col.Name(), colErr)
+					continue
+				}
+				if applyErr := snapshot.ApplySection(snap, sec); applyErr != nil {
+					pterm.Warning.Printf("apply %q: %v\n", col.Name(), applyErr)
 				}
 			}
 

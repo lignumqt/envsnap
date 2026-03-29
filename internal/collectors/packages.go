@@ -39,22 +39,69 @@ func NewPackagesCollector() *PackagesCollector { return &PackagesCollector{} }
 func (c *PackagesCollector) Name() string { return PackagesCollectorName }
 
 func (c *PackagesCollector) Collect(ctx context.Context) (Section, error) {
+	var sec Section
+	var err error
+
 	// Prefer APT/dpkg if available.
-	if path, err := exec.LookPath("dpkg-query"); err == nil {
+	if path, err2 := exec.LookPath("dpkg-query"); err2 == nil {
 		debugf(ctx, "package manager: APT/dpkg (%s)", path)
-		return collectAPT(ctx, path)
-	}
-	// Try dnf5 first (Fedora 40+ ships dnf5 as a standalone binary).
-	if path, err := exec.LookPath("dnf5"); err == nil {
+		sec, err = collectAPT(ctx, path)
+	} else if path, err2 := exec.LookPath("dnf5"); err2 == nil {
 		debugf(ctx, "package manager: DNF5 (%s)", path)
-		return collectDNF(ctx, path, true)
-	}
-	if path, err := exec.LookPath("dnf"); err == nil {
+		sec, err = collectDNF(ctx, path, true)
+	} else if path, err2 := exec.LookPath("dnf"); err2 == nil {
 		debugf(ctx, "package manager: DNF (%s)", path)
-		return collectDNF(ctx, path, false)
+		sec, err = collectDNF(ctx, path, false)
+	} else {
+		return Section{Name: PackagesCollectorName, Data: []types.Package{}},
+			fmt.Errorf("no supported package manager found (dpkg-query, dnf5, or dnf)")
 	}
-	return Section{Name: PackagesCollectorName, Data: []types.Package{}},
-		fmt.Errorf("no supported package manager found (dpkg-query, dnf5, or dnf)")
+	if err != nil {
+		return sec, err
+	}
+
+	// Interactive TUI — let the user deselect packages they don't need.
+	// Falls back to the full list when stdin is not a terminal or in non-interactive mode.
+	if isTTY() && !IsNonInteractive(ctx) {
+		sec = runPackagesTUIOnSection(ctx, sec)
+	}
+	return sec, nil
+}
+
+// runPackagesTUIOnSection extracts the package slice from the section, runs the
+// interactive selector, and returns a section with only the selected packages.
+// The repository list (for DNF) is always preserved unchanged.
+func runPackagesTUIOnSection(ctx context.Context, sec Section) Section {
+	var pkgs []types.Package
+	var repos []types.Repository
+
+	switch v := sec.Data.(type) {
+	case []types.Package:
+		pkgs = v
+	case types.DNFData:
+		pkgs = v.Packages
+		repos = v.Repositories
+	default:
+		return sec
+	}
+
+	if len(pkgs) == 0 {
+		return sec
+	}
+
+	selected, err := runPackagesTUI(pkgs)
+	if err != nil {
+		debugf(ctx, "packages TUI error (non-fatal): %v", err)
+		return sec
+	}
+
+	switch sec.Data.(type) {
+	case []types.Package:
+		sec.Data = selected
+	case types.DNFData:
+		sec.Data = types.DNFData{Packages: selected, Repositories: repos}
+	}
+	return sec
 }
 
 // ── APT / dpkg ──────────────────────────────────────────────────────────────
