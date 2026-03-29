@@ -2,16 +2,19 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/lignumqt/envsnap/internal/snapshot"
 	"github.com/lignumqt/envsnap/internal/storage"
+	"github.com/lignumqt/envsnap/internal/types"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
 func newInspectCmd() *cobra.Command {
 	var showEnv bool
+	var showPackages bool
 
 	cmd := &cobra.Command{
 		Use:   "inspect <snapshot>",
@@ -22,13 +25,37 @@ func newInspectCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if showPackages && len(snap.Sections.Packages) > 0 {
+				if isInspectTTY() {
+					return runPackagesBrowser(snap.Sections.Packages)
+				}
+				// Non-TTY fallback: print plain table.
+				return printAllPackagesPlain(snap.Sections.Packages)
+			}
 			printInspect(snap, showEnv)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&showEnv, "env", false, "also print all environment variables")
+	cmd.Flags().BoolVar(&showPackages, "packages", false, "browse all packages interactively")
 	return cmd
+}
+
+func isInspectTTY() bool {
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func printAllPackagesPlain(pkgs []types.Package) error {
+	pkgTable := pterm.TableData{{"Name", "Version", "Manager"}}
+	for _, p := range pkgs {
+		pkgTable = append(pkgTable, []string{p.Name, p.Version, p.Manager})
+	}
+	return pterm.DefaultTable.WithHasHeader().WithData(pkgTable).Render()
 }
 
 func printInspect(snap *snapshot.Snapshot, showEnv bool) {
@@ -87,6 +114,7 @@ func printInspect(snap *snapshot.Snapshot, showEnv bool) {
 		_ = pterm.DefaultTable.WithHasHeader().WithData(pkgTable).Render()
 		if len(pkgs) > 20 {
 			pterm.Info.Printf("… and %d more packages.\n", len(pkgs)-20)
+			pterm.Info.Printf("Use --packages to browse all %d packages interactively.\n", len(pkgs))
 		}
 	}
 

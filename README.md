@@ -4,7 +4,7 @@ A CLI tool for capturing a structured snapshot of your Linux development environ
 
 ## Features
 
-- **snapshot** — capture your current environment (packages, env vars, system info, Go toolchain, kernel modules)
+- **snapshot** — capture your current environment (packages, env vars, system info, Go toolchain, kernel modules); interactive TUI lets you deselect packages and kernel modules before saving
 - **inspect** — pretty-print the contents of a saved snapshot
 - **diff** — compare two snapshots with color-coded output (added / removed / changed)
 - **restore** — dry-run or apply installation of packages missing on the current machine
@@ -49,6 +49,9 @@ envsnap snapshot --exclude kernel_modules
 
 # Inspect a snapshot (metadata, system, Go, first 20 packages, kernel modules)
 envsnap inspect ~/.envsnapshot/snapshot-2026-03-29T10-00-00Z.json
+
+# Browse all captured packages in a scrollable, filterable full-screen TUI
+envsnap inspect snapshot.json --packages
 
 # Also print all captured environment variables
 envsnap inspect snapshot.json --env
@@ -96,15 +99,31 @@ Captures the current environment and writes a JSON file.
 | `--include`       |       | *(all collectors)*               | Comma-separated list of collectors to run                |
 | `--exclude`       |       | *(none)*                         | Comma-separated list of collectors to skip               |
 
-When `kernel_modules` is included (the default), background collectors run first with a progress spinner, then the kernel module TUI launches in the foreground.
+When `kernel_modules` or `packages` is included (the default), background collectors run first with a progress spinner, then the interactive TUIs launch in sequence:
+
+1. **Package selector** — all installed packages are pre-selected; deselect anything you don't want in the snapshot. Use `Space` to toggle, `a` to toggle all visible, `/` to filter, `Enter` to confirm.
+2. **Kernel module selector** — same controls; choose which modules to record.
+
+Both TUIs are skipped automatically when stdin is not a terminal (pipe, CI, `--non-interactive`).
 
 ### `inspect`
 
-| Flag    | Default | Description                                         |
-|---------|---------|-----------------------------------------------------|
-| `--env` | false   | Print all captured environment variables (sorted)  |
+| Flag          | Default | Description                                                              |
+|---------------|---------|--------------------------------------------------------------------------|
+| `--env`       | false   | Print all captured environment variables (sorted)                        |
+| `--packages`  | false   | Open a full-screen interactive browser for all captured packages         |
 
-`inspect` shows only the first 20 packages to avoid flooding the terminal; the rest are summarised as `… and N more packages`.
+`inspect` shows only the first 20 packages by default to avoid flooding the terminal; the remaining packages are summarised as `… and N more packages. Use --packages to browse all N packages interactively.`
+
+The `--packages` browser supports:
+- `↑ / ↓ / j / k` — scroll line by line
+- `PgUp / PgDn` — scroll page by page
+- `g / G` — jump to top / bottom
+- `/` — enter filter mode (searches name and version)
+- `Esc` — clear active filter (or quit if no filter)
+- `q / Ctrl+C` — quit
+
+When stdout is not a terminal (pipe, redirect), `--packages` falls back to printing the full plain table.
 
 ### `diff`
 
