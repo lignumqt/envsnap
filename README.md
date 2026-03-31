@@ -1,6 +1,11 @@
-# EnvSnapshot
+# envsnap
 
-A CLI tool for capturing a structured snapshot of your Linux development environment, comparing snapshots across machines, and restoring missing packages.
+[![Go Reference](https://pkg.go.dev/badge/github.com/lignumqt/envsnap.svg)](https://pkg.go.dev/github.com/lignumqt/envsnap)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lignumqt/envsnap)](https://goreportcard.com/report/github.com/lignumqt/envsnap)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Package envsnap captures a structured snapshot of a Linux development environment,
+compares snapshots across machines, and restores missing packages.
 
 ## Features
 
@@ -20,22 +25,22 @@ A CLI tool for capturing a structured snapshot of your Linux development environ
 ## Installation
 
 ```bash
-# Build binary to ./envsnap, then install to /usr/local/bin
-make build
-sudo make install
-```
-
-Or install directly with Go:
-
-```bash
 go install github.com/lignumqt/envsnap/cmd/envsnap@latest
 ```
 
 > **Note:** version, commit hash and build date are injected via `-ldflags` at build time.
 > `go install …@latest` produces a binary with these fields set to `dev`/`none`.
-> Use `make build` to get proper version stamping.
+> Use `make build` for proper version stamping.
 
-## Quick start
+Build from source:
+
+```bash
+# Build binary to ./envsnap, then install to /usr/local/bin
+make build
+sudo make install
+```
+
+## Getting started
 
 ```bash
 # Take a full snapshot (kernel module TUI opens automatically)
@@ -87,7 +92,7 @@ envsnap export snapshot.json -f ansible -o playbook.yml
 source <(envsnap export snapshot.json -f env)
 ```
 
-## Command reference
+## Usage
 
 ### `snapshot`
 
@@ -267,7 +272,7 @@ Pressing `Enter` or `Ctrl+C` opens a confirmation overlay instead of quitting im
 Snapshots are saved to `~/.envsnapshot/` by default, with filenames like `snapshot-2026-03-29T10-00-00Z.json`.
 The directory is created with permissions `0700` and each file is written with `0600` (owner-readable only).
 
-## Snapshot format
+## Snapshot format (JSON schema)
 
 ```json
 {
@@ -304,7 +309,7 @@ The directory is created with permissions `0700` and each file is written with `
 }
 ```
 
-## Practical workflows
+## Examples
 
 ### Replicate a dev machine
 
